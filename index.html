@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Manajemen Gudang - Firebase</title>
+    <!-- Bootstrap 5 CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome untuk ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS (XLSX) Library untuk Ekspor Excel Asli -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        /* Gaya Tampilan Padat ala Aplikasi Android */
+        body { font-size: 0.85rem; }
+        .container { max-width: 950px; }
+        h2 { font-size: 1.5rem !important; }
+        h4 { font-size: 1.2rem !important; }
+        h5 { font-size: 1rem !important; }
+        
+        .form-control, .form-select {
+            font-size: 0.85rem;
+            padding: 0.375rem 0.75rem;
+        }
+        .form-label {
+            font-size: 0.8rem;
+            margin-bottom: 0.3rem;
+        }
+        .btn {
+            font-size: 0.85rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .table-excel { border-color: #dee2e6; }
+        .table-excel th {
+            background-color: #f1f3f5;
+            color: #495057;
+            border-bottom: 2px solid #ced4da;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            padding: 8px 10px;
+        }
+        .table-excel td { font-size: 0.8rem; vertical-align: middle; color: #212529; padding: 8px 10px; }
+        .table-container { max-height: 420px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; }
+        .nav-pills .nav-link { font-size: 0.85rem; padding: 6px 16px !important; }
+        .nav-pills .nav-link.active { background-color: #198754; font-weight: 600; }
+        
+        /* Style Indikator Koneksi */
+        .connection-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 3px 10px;
+            border-radius: 50rem;
+            background-color: #e9ecef;
+            border: 1px solid #dee2e6;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.connecting { background-color: #ffc107; box-shadow: 0 0 6px #ffc107; }
+        .status-dot.connected { background-color: #198754; box-shadow: 0 0 6px #198754; }
+        .status-dot.error { background-color: #dc3545; box-shadow: 0 0 6px #dc3545; }
+
+        /* Gaya Pop-up Modal ala Android Material Design */
+        .modal-content {
+            border-radius: 14px;
+            border: none;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            font-size: 0.85rem;
+        }
+        .modal-header { border-bottom: none; padding-bottom: 0; }
+        .modal-footer { border-top: none; }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="container my-3">
+        
+        <!-- HEADER & NAVIGASI MENU -->
+        <div class="row justify-content-center mb-3">
+            <div class="col-lg-11 text-center">
+                <h2 class="fw-bold mb-1"><i class="fas fa-warehouse me-2 text-success"></i>Sistem Manajemen Gudang</h2>
+                <p class="text-muted mb-2 small">Terhubung dengan Realtime Database</p>
+                
+                <!-- INDIKATOR STATUS KONEKSI & STATUS ADMIN -->
+                <div class="d-flex justify-content-center align-items-center gap-2 mb-2 flex-wrap">
+                    <div id="connectionStatus" class="connection-indicator">
+                        <span class="status-dot connecting" id="statusDot"></span>
+                        <span id="statusText">Memeriksa konfigurasi...</span>
+                    </div>
+                    <div id="adminBadge" class="badge bg-secondary p-1 px-3 rounded-pill" style="font-size: 0.75rem;">
+                        <i class="fas fa-user-shield me-1"></i> Mode: Staff / Viewer
+                    </div>
+                    <button class="btn btn-outline-dark btn-sm rounded-pill px-3 py-1" style="font-size: 0.75rem;" onclick="toggleAdminModal()">
+                        <i class="fas fa-key me-1"></i> <span id="btnAdminText">Login Admin</span>
+                    </button>
+                </div>
+                
+                <!-- Tombol Navigasi Menu -->
+                <ul class="nav nav-pills justify-content-center gap-1 mt-2" id="pills-tab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active rounded-pill shadow-sm" id="menu-form-tab" data-bs-toggle="pill" data-bs-target="#menu-form" type="button" role="tab">
+                            <i class="fas fa-share-from-square me-1"></i>Form Keluar
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link rounded-pill shadow-sm position-relative" id="menu-riwayat-tab" data-bs-toggle="pill" data-bs-target="#menu-riwayat" type="button" role="tab" onclick="clearNotification()">
+                            <i class="fas fa-table-list me-1"></i>Riwayat Keluar
+                            <span id="badgeNotif" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 0.65rem;">0</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link rounded-pill shadow-sm" id="menu-stok-tab" data-bs-toggle="pill" data-bs-target="#menu-stok" type="button" role="tab">
+                            <i class="fas fa-boxes-stacked me-1"></i>Stok Tersedia
+                        </button>
+                    </li>
+                    <!-- Menu Input Stok (Khusus Admin) -->
+                    <li class="nav-item admin-menu-item" role="presentation" style="display: none;">
+                        <button class="nav-link rounded-pill shadow-sm bg-primary text-white" id="menu-admin-stok-tab" data-bs-toggle="pill" data-bs-target="#menu-admin-stok" type="button" role="tab">
+                            <i class="fas fa-plus-circle me-1"></i>Input Stok (Admin)
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- KONTEN MENU -->
+        <div class="tab-content" id="pills-tabContent">
+            
+            <!-- 1. MENU FORM BARANG KELUAR (MULTI-ITEM) -->
+            <div class="tab-pane fade show active" id="menu-form" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-lg-9">
+                        <div class="card shadow-sm border-0 rounded-4">
+                            <div class="card-header bg-success text-white text-center py-3 rounded-top-4">
+                                <h4 class="mb-0"><i class="fas fa-share-from-square me-2"></i>Form Barang Keluar</h4>
+                                <p class="mb-0 text-white-50 small mt-1">Masukkan detail pengeluaran barang</p>
+                            </div>
+                            <div class="card-body p-3 p-md-4">
+                                <form id="formBarangKeluar" onsubmit="handleTambahBarangKeluar(event)">
+                                    <div class="row mb-2">
+                                        <div class="col-md-6 mb-2">
+                                            <label for="tanggal" class="form-label fw-semibold">Tanggal <span class="text-danger">*</span></label>
+                                            <input type="date" class="form-control" id="tanggal" required>
+                                        </div>
+                                        <div class="col-md-6 mb-2">
+                                            <label for="requestor" class="form-label fw-semibold">Requestor (Peminta) <span class="text-danger">*</span></label>
+                                            <input type="text" class="form-control" id="requestor" placeholder="Nama peminta / departemen" required>
+                                        </div>
+                                    </div>
+
+                                    <hr class="my-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="form-label fw-bold mb-0 text-success"><i class="fas fa-list me-1"></i> Daftar Barang yang Keluar</label>
+                                        <!-- Tombol Tambah Barang Lain Tanpa Border -->
+                                        <button type="button" class="btn btn-link text-success text-decoration-none fw-semibold p-0 shadow-none" style="font-size: 0.8rem;" onclick="tambahBarisItem()">
+                                            <i class="fas fa-plus-circle me-1"></i> Tambah Barang Lain
+                                        </button>
+                                    </div>
+
+                                    <!-- Container untuk baris item dinamis -->
+                                    <div id="containerItemKeluar">
+                                        <div class="row item-row mb-2 align-items-end">
+                                            <div class="col-md-7">
+                                                <label class="form-label text-muted small d-md-none">Nama Barang</label>
+                                                <input type="text" class="form-control nama-barang-input" placeholder="Ketik nama barang" required>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label text-muted small d-md-none">QTY (Jumlah)</label>
+                                                <input type="number" class="form-control qty-input" min="1" placeholder="Jumlah" required>
+                                            </div>
+                                            <div class="col-md-1 text-center">
+                                                <button type="button" class="btn btn-outline-danger btn-sm border-0 mb-1" onclick="hapusBarisItem(this)" disabled title="Hapus">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+                                        <button type="reset" class="btn btn-outline-secondary me-md-2 px-3" onclick="resetFormBarangKeluar()"><i class="fas fa-undo me-1"></i> Reset</button>
+                                        <button type="submit" class="btn btn-success px-4" id="btnSimpanKeluar">
+                                            <span id="btnSimpanKeluarText"><i class="fas fa-save me-1"></i> Ajukan Barang Keluar</span>
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. MENU RIWAYAT BARANG KELUAR -->
+            <div class="tab-pane fade" id="menu-riwayat" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-lg-11">
+                        <div class="card shadow-sm border-0 rounded-4">
+                            <div class="card-header bg-dark text-white py-2 px-3 rounded-top-4 d-flex flex-column flex-lg-row justify-content-between align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <h5 class="mb-0"><i class="fas fa-table me-2"></i>Riwayat & Status Persetujuan</h5>
+                                    <span class="badge bg-success rounded-pill" id="totalDataBadge" style="font-size: 0.75rem;">0 Data</span>
+                                </div>
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <div class="input-group input-group-sm" style="width: 220px;">
+                                        <span class="input-group-text bg-white border-0"><i class="fas fa-search text-muted"></i></span>
+                                        <input type="text" id="inputPencarian" class="form-control border-0 form-control-sm" placeholder="Cari data..." onkeyup="filterTabelKeluar()">
+                                    </div>
+                                    <button class="btn btn-outline-light btn-sm py-1 px-2" style="font-size: 0.75rem;" onclick="exportToXLSX()" title="Download Format XLSX">
+                                        <i class="fas fa-file-excel text-success me-1"></i> Export
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="table-container table-responsive">
+                                    <table class="table table-bordered table-hover table-excel align-middle mb-0" id="tabelRiwayat">
+                                        <thead>
+                                            <tr>
+                                                <th class="text-center" width="5%">No</th>
+                                                <th width="14%">Tanggal</th>
+                                                <th width="32%">Nama Barang</th>
+                                                <th class="text-center" width="12%">QTY</th>
+                                                <th width="17%">Requestor</th>
+                                                <th class="text-center" width="20%">Persetujuan Admin</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="barisDataRiwayat">
+                                            <tr><td colspan="6" class="text-center text-muted py-4">Memuat data...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mt-2 text-muted" style="font-size: 0.75rem;">
+                                    <span id="infoJumlahBaris">Menampilkan semua data</span>
+                                    <span>Realtime Database</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. MENU STOK BARANG TERSEDIA -->
+            <div class="tab-pane fade" id="menu-stok" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-lg-11">
+                        <div class="card shadow-sm border-0 rounded-4">
+                            <div class="card-header bg-primary text-white py-2 px-3 rounded-top-4 d-flex flex-column flex-lg-row justify-content-between align-items-center gap-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <h5 class="mb-0"><i class="fas fa-boxes-stacked me-2"></i>Stok Tersedia</h5>
+                                    <span class="badge bg-light text-dark rounded-pill" id="totalStokBadge" style="font-size: 0.75rem;">0 Jenis</span>
+                                </div>
+                                <div class="input-group input-group-sm" style="width: 220px;">
+                                    <span class="input-group-text bg-white border-0"><i class="fas fa-search text-muted"></i></span>
+                                    <input type="text" id="inputPencarianStok" class="form-control border-0 form-control-sm" placeholder="Cari stok barang..." onkeyup="filterTabelStok()">
+                                </div>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="table-container table-responsive">
+                                    <table class="table table-bordered table-hover table-excel align-middle mb-0" id="tabelStok">
+                                        <thead>
+                                            <tr>
+                                                <th class="text-center" width="6%">No</th>
+                                                <th width="50%">Nama Barang</th>
+                                                <th class="text-center" width="22%">Stok</th>
+                                                <th width="22%">Satuan</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="barisDataStok">
+                                            <tr><td colspan="4" class="text-center text-muted py-4">Memuat data stok...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mt-2 text-muted" style="font-size: 0.75rem;">
+                                    <span id="infoJumlahStok">Menampilkan semua stok</span>
+                                    <span class="text-danger fw-semibold">*Menu Input/Edit Stok khusus Admin</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. MENU FORM INPUT STOK BARU (KHUSUS ADMIN) -->
+            <div class="tab-pane fade" id="menu-admin-stok" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-lg-8">
+                        <div class="card shadow-sm border-0 rounded-4 border-primary">
+                            <div class="card-header bg-primary text-white text-center py-3 rounded-top-4">
+                                <h4 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Form Input Stok (Admin)</h4>
+                                <p class="mb-0 text-white-50 small mt-1">Jika barang sudah ada, jumlah stok akan otomatis bertambah</p>
+                            </div>
+                            <div class="card-body p-3 p-md-4">
+                                <form id="formInputStokAdmin" onsubmit="saveStokBarangAdmin(event)">
+                                    <input type="hidden" id="stokIdAdmin">
+                                    <div class="mb-2">
+                                        <label for="adminNamaBarang" class="form-label fw-semibold">Nama Barang <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="adminNamaBarang" placeholder="Masukkan nama barang" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label for="adminJumlahStok" class="form-label fw-semibold">Jumlah Stok Tambahan / Masuk <span class="text-danger">*</span></label>
+                                        <input type="number" class="form-control" id="adminJumlahStok" min="1" placeholder="Jumlah" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label for="adminSatuanStok" class="form-label fw-semibold">Satuan <span class="text-danger">*</span></label>
+                                        <select class="form-select" id="adminSatuanStok" required>
+                                            <option value="" disabled selected>Pilih Satuan</option>
+                                            <option value="pcs">Pcs</option>
+                                            <option value="box">Box</option>
+                                            <option value="kg">Kg</option>
+                                            <option value="roll">Roll</option>
+                                            <option value="sheet">Sheet</option>
+                                        </select>
+                                    </div>
+                                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+                                        <button type="button" class="btn btn-outline-secondary me-md-2 px-3" onclick="resetFormStokAdmin()"><i class="fas fa-undo me-1"></i> Reset</button>
+                                        <button type="submit" class="btn btn-primary px-4" id="btnSimpanStokAdmin">
+                                            <i class="fas fa-save me-1"></i> Tambahkan Stok
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Tabel Kelola Stok Khusus Admin di bawah form -->
+                        <div class="card shadow-sm border-0 rounded-4 mt-3">
+                            <div class="card-header bg-secondary text-white py-2 px-3 rounded-top-4">
+                                <h5 class="mb-0"><i class="fas fa-tools me-2"></i>Manajemen Stok (Admin)</h5>
+                            </div>
+                            <div class="card-body p-3">
+                                <div class="table-container table-responsive">
+                                    <table class="table table-bordered table-hover table-excel align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th class="text-center" width="6%">No</th>
+                                                <th width="44%">Nama Barang</th>
+                                                <th class="text-center" width="20%">Stok</th>
+                                                <th width="15%">Satuan</th>
+                                                <th class="text-center" width="15%">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="barisDataAdminStok">
+                                            <tr><td colspan="5" class="text-center text-muted py-3">Memuat data...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODAL ANDROID STYLE -->
+    <div class="modal fade" id="androidModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content p-3">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold text-success" id="androidModalTitle"><i class="fas fa-info-circle me-2"></i>Informasi</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-2">
+                    <p id="androidModalMessage" class="mb-0 text-secondary" style="font-size: 0.85rem;">Pesan pemberitahuan...</p>
+                </div>
+                <div class="modal-footer pt-0" id="androidModalFooter">
+                    <button type="button" class="btn btn-success rounded-pill px-3 py-1" style="font-size: 0.8rem;" data-bs-dismiss="modal">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LOGIN ADMIN -->
+    <div class="modal fade" id="adminLoginModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content p-3">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold text-primary"><i class="fas fa-user-shield me-2"></i>Login Admin Gudang</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-2">
+                    <form id="formLoginAdmin" onsubmit="verifyAdmin(event)">
+                        <div class="mb-2">
+                            <label for="adminPassword" class="form-label">Password Admin</label>
+                            <input type="password" class="form-control" id="adminPassword" placeholder="Masukkan password admin" required>
+                        </div>
+                        <div class="d-grid mt-3">
+                            <button type="submit" class="btn btn-primary rounded-pill py-1">Masuk sebagai Admin</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS Bundle CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- SheetJS (XLSX) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <!-- FIREBASE REALTIME DATABASE SDK & LOGIKA -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, push, update, remove, onValue, query, orderByChild } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // ==========================================
+        // GANTI DENGAN KONFIGURASI FIREBASE ANDA
+        // ==========================================
+        const firebaseConfig = {
+  apiKey: "AIzaSyA_QcHO8eB6JsJZslr9kFDLIhgZu0cXHBI",
+  authDomain: "material-incomming.firebaseapp.com",
+  databaseURL: "https://material-incomming-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "material-incomming",
+  storageBucket: "material-incomming.firebasestorage.app",
+  messagingSenderId: "323944053500",
+  appId: "1:323944053500:web:b800addbf65b915dd33579"
+};
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        let hasUnreadNotifications = true;
+        let isAdminLoggedIn = false;
+        const ADMIN_PASSWORD = "admin123";
+
+        function updateConnectionStatus(status, message) {
+            statusDot.className = 'status-dot ' + status;
+            statusText.textContent = message;
+        }
+
+        window.showAndroidAlert = function(title, message, isError = false) {
+            document.getElementById('androidModalTitle').innerHTML = isError ? 
+                '<i class="fas fa-exclamation-circle me-2 text-danger"></i>Perhatian' : 
+                '<i class="fas fa-check-circle me-2 text-success"></i>Sukses';
+            document.getElementById('androidModalMessage').textContent = message;
+            document.getElementById('androidModalFooter').innerHTML = `
+                <button type="button" class="btn btn-success rounded-pill px-3 py-1" style="font-size: 0.8rem;" data-bs-dismiss="modal">OK</button>
+            `;
+            
+            const androidModalEl = document.getElementById('androidModal');
+            const modalInstance = bootstrap.Modal.getInstance(androidModalEl) || new bootstrap.Modal(androidModalEl);
+            modalInstance.show();
+        };
+
+        window.showAndroidConfirm = function(title, message, onConfirm) {
+            document.getElementById('androidModalTitle').innerHTML = '<i class="fas fa-question-circle me-2 text-warning"></i>' + title;
+            document.getElementById('androidModalMessage').textContent = message;
+            document.getElementById('androidModalFooter').innerHTML = `
+                <button type="button" class="btn btn-outline-secondary rounded-pill px-3 py-1" style="font-size: 0.8rem;" data-bs-dismiss="modal">Batal</button>
+                <button type="button" id="confirmActionBtn" class="btn btn-danger rounded-pill px-3 py-1" style="font-size: 0.8rem;" data-bs-dismiss="modal">Ya, Lanjutkan</button>
+            `;
+            const androidModalEl = document.getElementById('androidModal');
+            const modalInstance = bootstrap.Modal.getInstance(androidModalEl) || new bootstrap.Modal(androidModalEl);
+            modalInstance.show();
+
+            document.getElementById('confirmActionBtn').onclick = function() {
+                onConfirm();
+            };
+        };
+
+        window.toggleAdminModal = function() {
+            if (isAdminLoggedIn) {
+                showAndroidConfirm("Konfirmasi", "Apakah Anda yakin ingin keluar dari Mode Admin?", () => {
+                    isAdminLoggedIn = false;
+                    updateAdminUI();
+                    showAndroidAlert("Informasi", "Anda telah keluar dari Mode Admin.");
+                });
+            } else {
+                const adminModalEl = document.getElementById('adminLoginModal');
+                const modalInstance = bootstrap.Modal.getInstance(adminModalEl) || new bootstrap.Modal(adminModalEl);
+                modalInstance.show();
+            }
+        };
+
+        window.verifyAdmin = function(event) {
+            event.preventDefault();
+            const pass = document.getElementById('adminPassword').value;
+            
+            const adminModalEl = document.getElementById('adminLoginModal');
+            const loginModalInstance = bootstrap.Modal.getInstance(adminModalEl);
+            if (loginModalInstance) {
+                loginModalInstance.hide();
+            }
+            
+            setTimeout(() => {
+                document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+
+                if (pass === ADMIN_PASSWORD) {
+                    isAdminLoggedIn = true;
+                    updateAdminUI();
+                    document.getElementById('formLoginAdmin').reset();
+                    showAndroidAlert("Berhasil", "Mode Admin Aktif! Anda sekarang dapat menyetujui/menolak barang keluar dan mengelola stok.");
+                } else {
+                    showAndroidAlert("Gagal", "Password Admin salah!", true);
+                }
+            }, 200);
+        };
+
+        function updateAdminUI() {
+            const badge = document.getElementById('adminBadge');
+            const btnText = document.getElementById('btnAdminText');
+            const adminMenuItems = document.querySelectorAll('.admin-menu-item');
+
+            if (isAdminLoggedIn) {
+                badge.className = "badge bg-success p-1 px-3 rounded-pill";
+                badge.innerHTML = '<i class="fas fa-user-shield me-1"></i> Mode: Administrator';
+                btnText.textContent = "Logout Admin";
+                adminMenuItems.forEach(el => el.style.display = "block");
+            } else {
+                badge.className = "badge bg-secondary p-1 px-3 rounded-pill";
+                badge.innerHTML = '<i class="fas fa-user-shield me-1"></i> Mode: Staff / Viewer';
+                btnText.textContent = "Login Admin";
+                adminMenuItems.forEach(el => el.style.display = "none");
+                
+                const activeTab = document.querySelector('.nav-link.active');
+                if(activeTab && activeTab.id === 'menu-admin-stok-tab') {
+                    document.getElementById('menu-form-tab').click();
+                }
+            }
+            if (typeof renderTabelStok === 'function') {
+                renderTabelStok(dataStokGlobal);
+                renderTabelAdminStok(dataStokGlobal);
+                renderTabelKeluar(dataRiwayatKeluar);
+            }
+        }
+
+        const isConfigValid = firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("MASUKKAN_");
+        let dataStokGlobal = [];
+        let dataRiwayatKeluar = [];
+
+        if (!isConfigValid) {
+            updateConnectionStatus('error', 'Konfigurasi Firebase belum diisi');
+        } else {
+            let app, db;
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getDatabase(app);
+                updateConnectionStatus('connecting', 'Menghubungkan ke Realtime Database...');
+
+                document.getElementById('tanggal').valueAsDate = new Date();
+
+                window.tambahBarisItem = function() {
+                    const container = document.getElementById('containerItemKeluar');
+                    const newRow = document.createElement('div');
+                    newRow.className = 'row item-row mb-2 align-items-end';
+                    newRow.innerHTML = `
+                        <div class="col-md-7">
+                            <input type="text" class="form-control nama-barang-input" placeholder="Ketik nama barang" required>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="number" class="form-control qty-input" min="1" placeholder="Jumlah" required>
+                        </div>
+                        <div class="col-md-1 text-center">
+                            <button type="button" class="btn btn-outline-danger btn-sm border-0 mb-1" onclick="hapusBarisItem(this)" title="Hapus">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    container.appendChild(newRow);
+                    aturTombolHapus();
+                };
+
+                window.hapusBarisItem = function(button) {
+                    const row = button.closest('.item-row');
+                    row.remove();
+                    aturTombolHapus();
+                };
+
+                function aturTombolHapus() {
+                    const rows = document.querySelectorAll('.item-row');
+                    rows.forEach((row) => {
+                        const btn = row.querySelector('button');
+                        if (rows.length === 1) {
+                            btn.disabled = true;
+                        } else {
+                            btn.disabled = false;
+                        }
+                    });
+                }
+
+                window.resetFormBarangKeluar = function() {
+                    document.getElementById('formBarangKeluar').reset();
+                    document.getElementById('tanggal').valueAsDate = new Date();
+                    document.getElementById('containerItemKeluar').innerHTML = `
+                        <div class="row item-row mb-2 align-items-end">
+                            <div class="col-md-7">
+                                <input type="text" class="form-control nama-barang-input" placeholder="Ketik nama barang" required>
+                            </div>
+                            <div class="col-md-4">
+                                <input type="number" class="form-control qty-input" min="1" placeholder="Jumlah" required>
+                            </div>
+                            <div class="col-md-1 text-center">
+                                <button type="button" class="btn btn-outline-danger btn-sm border-0 mb-1" onclick="hapusBarisItem(this)" disabled title="Hapus">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                };
+
+                window.handleTambahBarangKeluar = async function(event) {
+                    event.preventDefault();
+                    const btnSimpan = document.getElementById('btnSimpanKeluar');
+                    const btnText = document.getElementById('btnSimpanKeluarText');
+                    
+                    btnSimpan.disabled = true;
+                    btnText.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Mengajukan...';
+
+                    try {
+                        const tanggal = document.getElementById('tanggal').value;
+                        const requestor = document.getElementById('requestor').value;
+                        const rows = document.querySelectorAll('.item-row');
+                        const dbRef = ref(db, 'barang_keluar');
+
+                        for (let row of rows) {
+                            const namaBarangInput = row.querySelector('.nama-barang-input').value.trim();
+                            const qtyKeluar = Number(row.querySelector('.qty-input').value);
+
+                            const newData = {
+                                tanggal: tanggal,
+                                namaBarang: namaBarangInput,
+                                qty: qtyKeluar,
+                                requestor: requestor,
+                                status: 'pending',
+                                createdAt: Date.now() + Math.random()
+                            };
+
+                            await push(dbRef, newData);
+                        }
+
+                        hasUnreadNotifications = true;
+                        showAndroidAlert("Berhasil", "Semua pengajuan barang keluar berhasil dikirim dan menunggu persetujuan Admin.");
+                        resetFormBarangKeluar();
+                    } catch (error) {
+                        console.error("Gagal menyimpan data: ", error);
+                        showAndroidAlert("Gagal", "Terjadi kesalahan: " + error.message, true);
+                    } finally {
+                        btnSimpan.disabled = false;
+                        btnText.innerHTML = '<i class="fas fa-save me-1"></i> Ajukan Barang Keluar';
+                    }
+                };
+
+                window.updateStatusKeluar = async function(id, statusAksi) {
+                    if (!isAdminLoggedIn) {
+                        showAndroidAlert("Akses Ditolak", "Anda harus login sebagai Admin!", true);
+                        return;
+                    }
+
+                    const itemKeluar = dataRiwayatKeluar.find(item => item.id === id);
+                    if (!itemKeluar) return;
+
+                    if (itemKeluar.status !== 'pending') {
+                        showAndroidAlert("Informasi", "Pengajuan ini sudah diproses sebelumnya.", true);
+                        return;
+                    }
+
+                    try {
+                        if (statusAksi === 'approved') {
+                            const matchedStok = dataStokGlobal.find(item => item.namaBarang.toLowerCase() === itemKeluar.namaBarang.toLowerCase());
+                            if (!matchedStok || matchedStok.jumlah < itemKeluar.qty) {
+                                showAndroidAlert("Stok Kurang", `Stok gudang "${itemKeluar.namaBarang}" tidak mencukupi (${matchedStok ? matchedStok.jumlah : 0} tersedia)!`, true);
+                                return;
+                            }
+
+                            const stokRef = ref(db, 'stok_barang/' + matchedStok.id);
+                            await update(stokRef, { jumlah: matchedStok.jumlah - itemKeluar.qty });
+                        }
+
+                        const keluarRef = ref(db, 'barang_keluar/' + id);
+                        await update(keluarRef, { status: statusAksi });
+
+                        showAndroidAlert("Sukses", statusAksi === 'approved' ? "Pengajuan disetujui dan stok berhasil dikurangi." : "Pengajuan ditolak.");
+                    } catch (error) {
+                        console.error("Gagal memperbarui status: ", error);
+                        showAndroidAlert("Gagal", "Terjadi kesalahan: " + error.message, true);
+                    }
+                };
+
+                const refKeluar = query(ref(db, 'barang_keluar'), orderByChild('createdAt'));
+                onValue(refKeluar, (snapshot) => {
+                    dataRiwayatKeluar = [];
+                    snapshot.forEach((childSnap) => {
+                        dataRiwayatKeluar.push({ id: childSnap.key, ...childSnap.val() });
+                    });
+                    dataRiwayatKeluar.reverse();
+                    updateBadgeNotif();
+                    renderTabelKeluar(dataRiwayatKeluar);
+                    updateConnectionStatus('connected', 'Terhubung ke Realtime Database (Live)');
+                });
+
+                window.renderTabelKeluar = function(data) {
+                    const tbody = document.getElementById('barisDataRiwayat');
+                    tbody.innerHTML = '';
+                    document.getElementById('totalDataBadge').textContent = `${dataRiwayatKeluar.length} Data`;
+
+                    if (data.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">Belum ada riwayat barang keluar.</td></tr>`;
+                        document.getElementById('infoJumlahBaris').textContent = 'Tidak ada data';
+                        return;
+                    }
+
+                    data.forEach((item, index) => {
+                        let statusBadge = '';
+                        if (item.status === 'approved') {
+                            statusBadge = '<span class="badge bg-success" style="font-size:0.7rem;"><i class="fas fa-check me-1"></i> Disetujui</span>';
+                        } else if (item.status === 'rejected') {
+                            statusBadge = '<span class="badge bg-danger" style="font-size:0.7rem;"><i class="fas fa-times me-1"></i> Ditolak</span>';
+                        } else {
+                            statusBadge = '<span class="badge bg-warning text-dark" style="font-size:0.7rem;"><i class="fas fa-clock me-1"></i> Menunggu</span>';
+                        }
+
+                        let aksiAdminHTML = '';
+                        if (isAdminLoggedIn && (!item.status || item.status === 'pending')) {
+                            aksiAdminHTML = `
+                                <div class="d-flex justify-content-center gap-1">
+                                    <button class="btn btn-sm btn-success px-2 py-0" style="font-size: 0.75rem;" onclick="updateStatusKeluar('${item.id}', 'approved')" title="Setujui">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger px-2 py-0" style="font-size: 0.75rem;" onclick="updateStatusKeluar('${item.id}', 'rejected')" title="Tolak">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            `;
+                        } else {
+                            aksiAdminHTML = `<div class="text-center">${statusBadge}</div>`;
+                        }
+
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="text-center text-muted fw-bold">${index + 1}</td>
+                            <td><i class="far fa-calendar-alt text-muted me-1"></i>${item.tanggal}</td>
+                            <td><strong>${escapeHtml(item.namaBarang)}</strong></td>
+                            <td class="text-center fw-bold text-success">${Number(item.qty).toLocaleString()}</td>
+                            <td><span class="fw-semibold text-dark">${escapeHtml(item.requestor)}</span></td>
+                            <td class="text-center">${aksiAdminHTML}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                    document.getElementById('infoJumlahBaris').textContent = `Menampilkan ${data.length} dari total ${dataRiwayatKeluar.length} data`;
+                };
+
+                const refStok = query(ref(db, 'stok_barang'), orderByChild('namaBarang'));
+                onValue(refStok, (snapshot) => {
+                    dataStokGlobal = [];
+                    snapshot.forEach((childSnap) => {
+                        dataStokGlobal.push({ id: childSnap.key, ...childSnap.val() });
+                    });
+                    renderTabelStok(dataStokGlobal);
+                    renderTabelAdminStok(dataStokGlobal);
+                });
+
+                window.renderTabelStok = function(data) {
+                    const tbody = document.getElementById('barisDataStok');
+                    tbody.innerHTML = '';
+                    document.getElementById('totalStokBadge').textContent = `${dataStokGlobal.length} Jenis`;
+
+                    if (data.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">Belum ada data stok barang.</td></tr>`;
+                        document.getElementById('infoJumlahStok').textContent = 'Tidak ada data stok';
+                        return;
+                    }
+
+                    data.forEach((item, index) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="text-center text-muted fw-bold">${index + 1}</td>
+                            <td><strong>${escapeHtml(item.namaBarang)}</strong></td>
+                            <td class="text-center fw-bold ${item.jumlah <= 5 ? 'text-danger' : 'text-primary'}">${Number(item.jumlah).toLocaleString()}</td>
+                            <td><span class="badge bg-secondary text-uppercase" style="font-size:0.7rem;">${item.satuan}</span></td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                    document.getElementById('infoJumlahStok').textContent = `Menampilkan ${data.length} jenis barang`;
+                };
+
+                window.renderTabelAdminStok = function(data) {
+                    const tbody = document.getElementById('barisDataAdminStok');
+                    if (!tbody) return;
+                    tbody.innerHTML = '';
+
+                    if (data.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-3">Belum ada data stok untuk dikelola.</td></tr>`;
+                        return;
+                    }
+
+                    data.forEach((item, index) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="text-center text-muted fw-bold">${index + 1}</td>
+                            <td><strong>${escapeHtml(item.namaBarang)}</strong></td>
+                            <td class="text-center fw-bold text-primary">${Number(item.jumlah).toLocaleString()}</td>
+                            <td><span class="badge bg-secondary text-uppercase" style="font-size:0.7rem;">${item.satuan}</span></td>
+                            <td class="text-center">
+                                <button class="btn btn-sm btn-outline-primary border-0 p-1 me-1" style="font-size: 0.75rem;" onclick="editStokAdmin('${item.id}', '${escapeHtml(item.namaBarang)}', ${item.jumlah}, '${item.satuan}')" title="Edit">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger border-0 p-1" style="font-size: 0.75rem;" onclick="hapusStokAdmin('${item.id}')" title="Hapus">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                };
+
+                window.saveStokBarangAdmin = async function(event) {
+                    event.preventDefault();
+                    if (!isAdminLoggedIn) {
+                        showAndroidAlert("Akses Ditolak", "Anda harus login sebagai Admin!", true);
+                        return;
+                    }
+
+                    const id = document.getElementById('stokIdAdmin').value;
+                    const adminNamaBarangInput = document.getElementById('adminNamaBarang').value.trim();
+                    const jumlahInput = Number(document.getElementById('adminJumlahStok').value);
+                    const satuanInput = document.getElementById('adminSatuanStok').value;
+
+                    try {
+                        if (id) {
+                            const stokRef = ref(db, 'stok_barang/' + id);
+                            await update(stokRef, { namaBarang: adminNamaBarangInput, jumlah: jumlahInput, satuan: satuanInput });
+                            showAndroidAlert("Berhasil", "Data stok berhasil diperbarui!");
+                        } else {
+                            const existingItem = dataStokGlobal.find(item => item.namaBarang.toLowerCase() === adminNamaBarangInput.toLowerCase());
+
+                            if (existingItem) {
+                                const stokRef = ref(db, 'stok_barang/' + existingItem.id);
+                                const totalBaru = Number(existingItem.jumlah) + jumlahInput;
+                                await update(stokRef, { jumlah: totalBaru, satuan: satuanInput });
+                                showAndroidAlert("Berhasil", `Barang "${adminNamaBarangInput}" sudah ada. Stok otomatis bertambah ${jumlahInput} (Total: ${totalBaru} ${satuanInput})!`);
+                            } else {
+                                const dbRef = ref(db, 'stok_barang');
+                                await push(dbRef, { namaBarang: adminNamaBarangInput, jumlah: jumlahInput, satuan: satuanInput });
+                                showAndroidAlert("Berhasil", "Stok barang baru berhasil ditambahkan ke database!");
+                            }
+                        }
+                        resetFormStokAdmin();
+                    } catch (error) {
+                        showAndroidAlert("Gagal", "Terjadi kesalahan: " + error.message, true);
+                    }
+                };
+
+                window.editStokAdmin = function(id, nama, jumlah, satuan) {
+                    if (!isAdminLoggedIn) return;
+                    document.getElementById('stokIdAdmin').value = id;
+                    document.getElementById('adminNamaBarang').value = nama;
+                    document.getElementById('adminJumlahStok').value = jumlah;
+                    document.getElementById('adminSatuanStok').value = satuan;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                };
+
+                window.resetFormStokAdmin = function() {
+                    document.getElementById('formInputStokAdmin').reset();
+                    document.getElementById('stokIdAdmin').value = '';
+                };
+
+                window.hapusStokAdmin = async function(id) {
+                    if (!isAdminLoggedIn) return;
+                    showAndroidConfirm("Konfirmasi Hapus", "Apakah Anda yakin ingin menghapus jenis stok barang ini?", async () => {
+                        try {
+                            await remove(ref(db, 'stok_barang/' + id));
+                            showAndroidAlert("Berhasil", "Stok barang dihapus.");
+                        } catch (error) {
+                            showAndroidAlert("Gagal", "Gagal menghapus stok.", true);
+                        }
+                    });
+                };
+
+                window.filterTabelKeluar = function() {
+                    const keyword = document.getElementById('inputPencarian').value.toLowerCase();
+                    const filtered = dataRiwayatKeluar.filter(item => 
+                        (item.tanggal && item.tanggal.toLowerCase().includes(keyword)) ||
+                        (item.namaBarang && item.namaBarang.toLowerCase().includes(keyword)) ||
+                        (item.requestor && item.requestor.toLowerCase().includes(keyword))
+                    );
+                    renderTabelKeluar(filtered);
+                };
+
+                window.filterTabelStok = function() {
+                    const keyword = document.getElementById('inputPencarianStok').value.toLowerCase();
+                    const filtered = dataStokGlobal.filter(item => 
+                        item.namaBarang.toLowerCase().includes(keyword) ||
+                        item.satuan.toLowerCase().includes(keyword)
+                    );
+                    renderTabelStok(filtered);
+                };
+
+                function updateBadgeNotif() {
+                    const badge = document.getElementById('badgeNotif');
+                    if (hasUnreadNotifications && dataRiwayatKeluar.length > 0) {
+                        badge.style.display = 'inline-block';
+                        badge.textContent = dataRiwayatKeluar.length;
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+
+                window.clearNotification = function() {
+                    hasUnreadNotifications = false;
+                    document.getElementById('badgeNotif').style.display = 'none';
+                };
+
+                window.exportToXLSX = function() {
+                    if (dataRiwayatKeluar.length === 0) {
+                        showAndroidAlert("Perhatian", "Tidak ada data untuk diexport!", true);
+                        return;
+                    }
+                    const dataFormatted = dataRiwayatKeluar.map((item, index) => ({
+                        "No": index + 1,
+                        "Tanggal": item.tanggal,
+                        "Nama Barang": item.namaBarang,
+                        "QTY": Number(item.qty),
+                        "Requestor": item.requestor,
+                        "Status Persetujuan": item.status === 'approved' ? 'Disetujui' : (item.status === 'rejected' ? 'Ditolak' : 'Menunggu')
+                    }));
+                    const worksheet = XLSX.utils.json_to_sheet(dataFormatted);
+                    worksheet['!cols'] = [{ wch: 5 }, { wch: 12 }, { wch: 25 }, { wch: 10 }, { wch: 20 }, { wch: 18 }];
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "Riwayat Barang Keluar");
+                    XLSX.writeFile(workbook, "Riwayat_Barang_Keluar_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+                };
+
+                function escapeHtml(text) {
+                    if (!text) return '';
+                    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+                    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+                }
+
+            } catch (error) {
+                console.error("Kesalahan inisialisasi:", error);
+                updateConnectionStatus('error', 'Gagal memuat Database');
+            }
+        }
+    </script>
+</body>
+</html>
